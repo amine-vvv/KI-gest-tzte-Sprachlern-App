@@ -223,6 +223,14 @@ function App() {
   const [isFlashcardModalDragging, setIsFlashcardModalDragging] = useState(false);
   const flashcardModalRef = useRef(null);
 
+  const languageMap = {
+    'ar': 'Arabic',
+    'en': 'English',
+    'fr': 'French',
+    'es': 'Spanish',
+    'de': 'German'
+  };
+
 
   // Function to get available voices and select a default one
   const updateVoicesAndSetDefault = () => {
@@ -239,7 +247,7 @@ function App() {
       // Fallback to the first voice if no suitable voice is found
       if (!preferredVoice) {
         preferredVoice = voices[0];
-        showError(`لا يوجد صوت متاح للغة ${targetLanguage}. سيتم استخدام صوت افتراضي. قد لا يكون النطق دقيقًا. يرجى التحقق من إعدادات المتصفح وحزم اللغة المثبتة.`);
+        showError(`لا يوجد صوت متاح للغة ${languageMap[targetLanguage] || targetLanguage}. سيتم استخدام صوت افتراضي. قد لا يكون النطق دقيقًا. يرجى التحقق من إعدادات المتصفح وحزم اللغة المثبتة.`);
       }
 
       setSpeechVoice(preferredVoice);
@@ -446,22 +454,14 @@ function App() {
       return;
     }
 
-    // Refined prompt to ensure good formatting and strict language adherence
-    const languageName = {
-      'ar': 'Arabic',
-      'en': 'English',
-      'fr': 'French',
-      'es': 'Spanish',
-      'de': 'German'
-    }[targetLanguage];
-
-    const prompt = `Write a short, well-structured story with clear paragraphs and cohesive sentences. The story must be entirely in ${languageName}, suitable for ${learningLevel} level. The story should be about: "${topicInput}". Do not use any single or double quotes in the text. Ensure to use line breaks (like two newlines for a new paragraph) to create separate paragraphs and make the text easy to read.`;
+    const currentTargetLanguageName = languageMap[targetLanguage] || targetLanguage;
+    const prompt = `Write a short, well-structured story with clear paragraphs and cohesive sentences. The story must be entirely in ${currentTargetLanguageName}, suitable for ${learningLevel} level. The story should be about: "${topicInput}". Do not use any single or double quotes in the text. Ensure to use line breaks (like two newlines for a new paragraph) to create separate paragraphs and make the text easy to read.`;
 
     try {
       let chatHistory = [];
       chatHistory.push({ role: "user", parts: [{ text: prompt }] });
       const payload = { contents: chatHistory };
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`; // Use provided API key
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`; 
 
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -473,40 +473,23 @@ function App() {
       if (result.candidates && result.candidates.length > 0 &&
           result.candidates[0].content && result.candidates[0].content.parts &&
           result.candidates[0].content.parts.length > 0) {
-        // Remove single and double quotes from the generated text and trim whitespace
         const text = result.candidates[0].content.parts[0].text.replace(/['"]/g, '').trim();
         setStoryText(text);
 
-        // Parse text into words and spaces for accurate highlighting and rendering
         const segments = [];
-        // Regex to match a word (non-whitespace characters) followed by any trailing whitespace
         const wordAndSpaceRegex = /(\S+)(\s*)/g;
         let match;
 
         while ((match = wordAndSpaceRegex.exec(text)) !== null) {
           const word = match[1];
           const spaces = match[2] || '';
-
-          segments.push({
-            type: 'word',
-            content: word,
-            startIndex: match.index,
-            endIndex: match.index + word.length
-          });
-
+          segments.push({ type: 'word', content: word, startIndex: match.index, endIndex: match.index + word.length });
           if (spaces.length > 0) {
-            segments.push({
-              type: 'space',
-              content: spaces,
-              startIndex: match.index + word.length,
-              endIndex: match.index + word.length + spaces.length
-            });
+            segments.push({ type: 'space', content: spaces, startIndex: match.index + word.length, endIndex: match.index + word.length + spaces.length });
           }
         }
         storySegmentsRef.current = segments;
-        console.log("Parsed story segments (words and spaces):", storySegmentsRef.current);
-
-        // If target language is not Arabic, generate an Arabic translation
+        
         if (targetLanguage !== 'ar') {
           await generateTranslation(text, 'ar');
         }
@@ -523,12 +506,13 @@ function App() {
   };
 
   // Function to generate translation using Gemini API
-  const generateTranslation = async (text, targetLang) => {
+  const generateTranslation = async (text, targetLangCode) => {
     if (!apiKey) {
       showError('الرجاء إدخال مفتاح الـ API الخاص بك في الإعدادات لتمكين الترجمة.');
       return;
     }
-    const prompt = `Translate the following text into ${targetLang === 'ar' ? 'Arabic' : targetLang === 'en' ? 'English' : targetLang === 'fr' ? 'French' : 'the specified language'}: "${text}". Do not use any single or double quotes in the translated text.`;
+    const targetLanguageName = languageMap[targetLangCode] || targetLangCode;
+    const prompt = `Translate the following text into ${targetLanguageName}: "${text}". Do not use any single or double quotes in the translated text.`;
     try {
       let chatHistory = [];
       chatHistory.push({ role: "user", parts: [{ text: prompt }] });
@@ -545,7 +529,7 @@ function App() {
       if (result.candidates && result.candidates.length > 0 &&
           result.candidates[0].content && result.candidates[0].content.parts &&
           result.candidates[0].content.parts.length > 0) {
-        setTranslatedStoryText(result.candidates[0].content.parts[0].text.replace(/['"]/g, '').trim()); // Remove quotes from translation too
+        setTranslatedStoryText(result.candidates[0].content.parts[0].text.replace(/['"]/g, '').trim());
       } else {
         console.error('Gemini API translation error:', result);
       }
@@ -571,11 +555,11 @@ function App() {
       return;
     }
 
-    const imagePrompt = `Artistic cartoon style image illustrating the theme of the story: "${storyText.substring(0, 100)}..."`; // Use first 100 chars of story as prompt
+    const imagePrompt = `Artistic cartoon style image illustrating the theme of the story: "${storyText.substring(0, 100)}..."`;
 
     try {
       const payload = { instances: { prompt: imagePrompt }, parameters: { "sampleCount": 1} };
-      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`; // Use provided API key
+      const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-002:predict?key=${apiKey}`;
 
       const response = await fetch(apiUrl, {
         method: 'POST',
@@ -602,26 +586,25 @@ function App() {
   // Function to handle word click and fetch explanation
   const handleWordClick = async (word) => {
     setSelectedWordForExplanation(word);
-    setWordExplanation(null); // Clear previous explanation
+    setWordExplanation(null); 
     setIsExplainingWord(true);
-    setShowErrorModal(false); // Hide any previous error messages
-    setShowPronunciationModal(false); // Close other modals if open
+    setShowErrorModal(false); 
+    setShowPronunciationModal(false); 
     setShowRolePlayModal(false);
     setShowFlashcardModal(false);
 
-    // Set initial size and position for centering
     setWordModalWidth(512);
-    setWordModalHeight('auto'); // Let the content define height, but use a default for Y centering
+    setWordModalHeight('auto'); 
     setWordModalX((window.innerWidth - 512) / 2);
-    setWordModalY((window.innerHeight - 400) / 2); // Assuming a default height of 400px for centering
+    setWordModalY((window.innerHeight - 400) / 2); 
 
     if (!apiKey) {
       showError('الرجاء إدخال مفتاح الـ API الخاص بك في الإعدادات لتمكين شرح الكلمات.');
       setIsExplainingWord(false);
       return;
     }
-
-    const prompt = `Provide a detailed explanation, synonyms, antonyms, and three example sentences for the word '${word}' in ${targetLanguage}. Also, translate the word to Arabic. Format the response as a JSON object with keys: 'explanation', 'synonyms', 'antonyms', 'examples' (an array of strings), and 'arabicTranslation'.`;
+    const currentTargetLanguageName = languageMap[targetLanguage] || targetLanguage;
+    const prompt = `Provide a detailed explanation, synonyms, antonyms, and three example sentences for the word '${word}' in ${currentTargetLanguageName}. Also, translate the word to Arabic. Format the response as a JSON object with keys: 'explanation', 'synonyms', 'antonyms', 'examples' (an array of strings), and 'arabicTranslation'.`;
 
     try {
       let chatHistory = [];
@@ -676,16 +659,15 @@ function App() {
     setQuizQuestions([]);
     setUserAnswers({});
     setQuizResults(null);
-    setShowErrorModal(false); // Hide any previous error messages
-    setShowPronunciationModal(false); // Close other modals if open
+    setShowErrorModal(false); 
+    setShowPronunciationModal(false); 
     setShowRolePlayModal(false);
     setShowFlashcardModal(false);
 
-    // Set initial size and position for centering
     setQuizModalWidth(768);
     setQuizModalHeight('auto');
     setQuizModalX((window.innerWidth - 768) / 2);
-    setQuizModalY((window.innerHeight - 600) / 2); // Assuming a default height of 600px for centering
+    setQuizModalY((window.innerHeight - 600) / 2); 
 
     if (!apiKey) {
       showError('الرجاء إدخال مفتاح الـ API الخاص بك في الإعدادات لتمكين توليد الاختبارات.');
@@ -698,12 +680,12 @@ function App() {
       setIsGeneratingQuiz(false);
       return;
     }
-
-    const prompt = `Generate 3 multiple-choice questions based on the following story in ${targetLanguage} for ${learningLevel} level. For each question, provide 4 options (A, B, C, D) and indicate the correct answer. Also, provide an Arabic translation for each question and its options.
+    const currentTargetLanguageName = languageMap[targetLanguage] || targetLanguage;
+    const prompt = `Generate 3 multiple-choice questions based on the following story in ${currentTargetLanguageName} for ${learningLevel} level. For each question, provide 4 options (A, B, C, D) and indicate the correct answer. Also, provide an Arabic translation for each question and its options.
     Format the response as a JSON array of objects. Each object should have:
-    - 'question': The question text in ${targetLanguage}.
+    - 'question': The question text in ${currentTargetLanguageName}.
     - 'question_ar': The question text in Arabic.
-    - 'options': An array of 4 strings (A, B, C, D) in ${targetLanguage}.
+    - 'options': An array of 4 strings (A, B, C, D) in ${currentTargetLanguageName}.
     - 'options_ar': An array of 4 strings (A, B, C, D) in Arabic.
     - 'correct_answer': The letter of the correct option (e.g., 'A', 'B').
 
@@ -748,7 +730,7 @@ function App() {
         const jsonText = result.candidates[0].content.parts[0].text;
         const parsedQuiz = JSON.parse(jsonText);
         setQuizQuestions(parsedQuiz);
-        setShowQuizModal(true); // Show quiz modal after generation
+        setShowQuizModal(true); 
       } else {
         showError('فشل في توليد الاختبار. قد تكون المشكلة في مفتاح الـ API أو في استجابة النموذج.');
         console.error('Gemini API quiz generation error:', result);
@@ -786,15 +768,14 @@ function App() {
     setIsRephrasing(true);
     setRephrasedSentenceData(null);
     setShowErrorModal(false);
-    setShowPronunciationModal(false); // Close other modals if open
+    setShowPronunciationModal(false); 
     setShowRolePlayModal(false);
     setShowFlashcardModal(false);
 
-    // Set initial size and position for centering
     setRephraseModalWidth(512);
     setRephraseModalHeight('auto');
     setRephraseModalX((window.innerWidth - 512) / 2);
-    setRephraseModalY((window.innerHeight - 300) / 2); // Assuming a default height of 300px for centering
+    setRephraseModalY((window.innerHeight - 300) / 2); 
 
     if (!apiKey) {
       showError('الرجاء إدخال مفتاح الـ API الخاص بك في الإعدادات لتمكين إعادة صياغة الجمل.');
@@ -807,8 +788,8 @@ function App() {
       setIsRephrasing(false);
       return;
     }
-
-    const prompt = `Rephrase the following sentence in ${targetLanguage} for ${learningLevel} level, making it simpler or clearer if possible. Explain the changes made. Provide output as a JSON object with keys: 'original', 'rephrased', and 'explanation'.
+    const currentTargetLanguageName = languageMap[targetLanguage] || targetLanguage;
+    const prompt = `Rephrase the following sentence in ${currentTargetLanguageName} for ${learningLevel} level, making it simpler or clearer if possible. Explain the changes made (explanation should be in Arabic). Provide output as a JSON object with keys: 'original' (in ${currentTargetLanguageName}), 'rephrased' (in ${currentTargetLanguageName}), and 'explanation' (in Arabic).
 
     Sentence: "${sentenceToRephrase}"`;
 
@@ -863,15 +844,14 @@ function App() {
     setIsAnalyzingGrammar(true);
     setGrammarAnalysis(null);
     setShowErrorModal(false);
-    setShowPronunciationModal(false); // Close other modals if open
+    setShowPronunciationModal(false); 
     setShowRolePlayModal(false);
     setShowFlashcardModal(false);
 
-    // Set initial size and position for centering
     setGrammarModalWidth(512);
     setGrammarModalHeight('auto');
     setGrammarModalX((window.innerWidth - 512) / 2);
-    setGrammarModalY((window.innerHeight - 450) / 2); // Assuming a default height of 450px for centering
+    setGrammarModalY((window.innerHeight - 450) / 2); 
 
     if (!apiKey) {
       showError('الرجاء إدخال مفتاح الـ API الخاص بك في الإعدادات لتمكين فحص القواعد النحوية.');
@@ -884,8 +864,8 @@ function App() {
       setIsAnalyzingGrammar(false);
       return;
     }
-
-    const prompt = `Analyze the grammar of the following sentence in ${targetLanguage}. Identify any errors, provide the corrected sentence, and explain the grammar rules violated for each error. Provide output as a JSON object with keys: 'original', 'corrected', and 'errors' (an array of objects, each with 'error' and 'explanation' keys).
+    const currentTargetLanguageName = languageMap[targetLanguage] || targetLanguage;
+    const prompt = `Analyze the grammar of the following sentence in ${currentTargetLanguageName}. Identify any errors, provide the corrected sentence (in ${currentTargetLanguageName}), and explain the grammar rules violated for each error (explanation in Arabic). Provide output as a JSON object with keys: 'original' (in ${currentTargetLanguageName}), 'corrected' (in ${currentTargetLanguageName}), and 'errors' (an array of objects, each with 'error' in ${currentTargetLanguageName} and 'explanation' in Arabic).
 
     Sentence: "${sentenceToCheckGrammar}"`;
 
@@ -949,15 +929,14 @@ function App() {
     setIsCompletingSentence(true);
     setSentenceCompletions([]);
     setShowErrorModal(false);
-    setShowPronunciationModal(false); // Close other modals if open
+    setShowPronunciationModal(false); 
     setShowRolePlayModal(false);
     setShowFlashcardModal(false);
 
-    // Set initial size and position for centering
     setCompletionModalWidth(512);
     setCompletionModalHeight('auto');
     setCompletionModalX((window.innerWidth - 512) / 2);
-    setCompletionModalY((window.innerHeight - 300) / 2); // Assuming a default height of 300px for centering
+    setCompletionModalY((window.innerHeight - 300) / 2); 
 
     if (!apiKey) {
       showError('الرجاء إدخال مفتاح الـ API الخاص بك في الإعدادات لتمكين إكمال الجمل.');
@@ -970,8 +949,8 @@ function App() {
       setIsCompletingSentence(false);
       return;
     }
-
-    const prompt = `Given the partial sentence '${partialSentence}' in ${targetLanguage}, provide 3 natural and grammatically correct ways to complete it. Return as a JSON array of strings.`;
+    const currentTargetLanguageName = languageMap[targetLanguage] || targetLanguage;
+    const prompt = `Given the partial sentence '${partialSentence}' in ${currentTargetLanguageName}, provide 3 natural and grammatically correct ways to complete it. Return as a JSON array of strings, where each string is a completion in ${currentTargetLanguageName}.`;
 
     try {
       let chatHistory = [];
@@ -1019,23 +998,22 @@ function App() {
     setIsGettingCulturalInsight(true);
     setCulturalInsight(null);
     setShowErrorModal(false);
-    setShowPronunciationModal(false); // Close other modals if open
+    setShowPronunciationModal(false); 
     setShowRolePlayModal(false);
     setShowFlashcardModal(false);
 
-    // Set initial size and position for centering
     setCulturalModalWidth(512);
     setCulturalModalHeight('auto');
     setCulturalModalX((window.innerWidth - 512) / 2);
-    setCulturalModalY((window.innerHeight - 350) / 2); // Assuming a default height of 350px for centering
+    setCulturalModalY((window.innerHeight - 350) / 2); 
 
     if (!apiKey) {
       showError('الرجاء إدخال مفتاح الـ API الخاص بك في الإعدادات لتمكين الرؤى الثقافية.');
       setIsGettingCulturalInsight(false);
       return;
     }
-
-    const prompt = `Provide a brief cultural insight related to the topic of '${topicInput || "general culture"}' or the overall theme of this story: '${storyText.substring(0, Math.min(storyText.length, 100)) || "language learning"}' in ${targetLanguage} for a language learner at ${learningLevel}. Focus on customs, traditions, or common social norms. Return as a JSON object with keys: 'title', 'insight'.`;
+    const currentTargetLanguageName = languageMap[targetLanguage] || targetLanguage;
+    const prompt = `Provide a brief cultural insight related to the topic of '${topicInput || "general culture"}' or the overall theme of this story: '${storyText.substring(0, Math.min(storyText.length, 100)) || "language learning"}' relevant to ${currentTargetLanguageName}-speaking cultures for a language learner at ${learningLevel}. Focus on customs, traditions, or common social norms. The insight itself should be in ${currentTargetLanguageName}, and the title in Arabic. Return as a JSON object with keys: 'title' (in Arabic), 'insight' (in ${currentTargetLanguageName}).`;
 
     try {
       let chatHistory = [];
@@ -1087,15 +1065,14 @@ function App() {
     setIsSummarizing(true);
     setStorySummary('');
     setShowErrorModal(false);
-    setShowPronunciationModal(false); // Close other modals if open
+    setShowPronunciationModal(false); 
     setShowRolePlayModal(false);
     setShowFlashcardModal(false);
 
-    // Set initial size and position for centering
     setSummaryModalWidth(512);
     setSummaryModalHeight('auto');
     setSummaryModalX((window.innerWidth - 512) / 2);
-    setSummaryModalY((window.innerHeight - 350) / 2); // Assuming a default height of 350px for centering
+    setSummaryModalY((window.innerHeight - 350) / 2); 
 
     if (!apiKey) {
       showError('الرجاء إدخال مفتاح الـ API الخاص بك في الإعدادات لتمكين تلخيص القصة.');
@@ -1108,8 +1085,8 @@ function App() {
       setIsSummarizing(false);
       return;
     }
-
-    const prompt = `Summarize the following story in ${targetLanguage}. Keep the summary concise and focus on the main plot points.
+    const currentTargetLanguageName = languageMap[targetLanguage] || targetLanguage;
+    const prompt = `Summarize the following story in ${currentTargetLanguageName}. Keep the summary concise and focus on the main plot points.
 
     Story:
     "${storyText}"`;
@@ -1149,15 +1126,14 @@ function App() {
     setIsExtractingVocabulary(true);
     setKeyVocabulary([]);
     setShowErrorModal(false);
-    setShowPronunciationModal(false); // Close other modals if open
+    setShowPronunciationModal(false); 
     setShowRolePlayModal(false);
     setShowFlashcardModal(false);
 
-    // Set initial size and position for centering
     setVocabularyModalWidth(512);
     setVocabularyModalHeight('auto');
     setVocabularyModalX((window.innerWidth - 512) / 2);
-    setVocabularyModalY((window.innerHeight - 400) / 2); // Assuming a default height of 400px for centering
+    setVocabularyModalY((window.innerHeight - 400) / 2); 
 
     if (!apiKey) {
       showError('الرجاء إدخال مفتاح الـ API الخاص بك في الإعدادات لتمكين استخراج المفردات.');
@@ -1170,8 +1146,8 @@ function App() {
       setIsExtractingVocabulary(false);
       return;
     }
-
-    const prompt = `Extract 5-7 key vocabulary words from the following story in ${targetLanguage}. For each word, provide its translation to Arabic and a very brief explanation in Arabic. Return as a JSON array of objects. Each object should have keys: 'word', 'translation', 'explanation'.
+    const currentTargetLanguageName = languageMap[targetLanguage] || targetLanguage;
+    const prompt = `Extract 5-7 key vocabulary words from the following story in ${currentTargetLanguageName}. For each word, provide its translation to Arabic and a very brief explanation in Arabic. Return as a JSON array of objects. Each object should have keys: 'word' (in ${currentTargetLanguageName}), 'translation' (in Arabic), 'explanation' (in Arabic).
 
     Story:
     "${storyText}"`;
@@ -1232,33 +1208,22 @@ function App() {
       return;
     }
 
-    setConversationHistory([]); // Clear previous conversation
+    setConversationHistory([]); 
     setUserDialogueInput('');
     setIsRespondingToDialogue(true);
     setShowDialogueModal(true);
-    setShowPronunciationModal(false); // Close other modals if open
+    setShowPronunciationModal(false); 
     setShowRolePlayModal(false);
     setShowFlashcardModal(false);
 
-    // Set initial size and position for centering
     setDialogueModalWidth(512);
     setDialogueModalHeight(window.innerHeight * 0.75);
     setDialogueModalX((window.innerWidth - 512) / 2);
     setDialogueModalY((window.innerHeight - (window.innerHeight * 0.75)) / 2);
 
-    const languageName = {
-      'ar': 'Arabic',
-      'en': 'English',
-      'fr': 'French',
-      'es': 'Spanish',
-      'de': 'German'
-    }[targetLanguage];
-
+    const currentTargetLanguageName = languageMap[targetLanguage] || targetLanguage;
     const dialogueTopic = topicInput ? `about the story topic: "${topicInput}"` : 'general language practice';
-
-    const systemPrompt = `You are a friendly and helpful language tutor. Your goal is to help the user practice their ${languageName} skills at an ${learningLevel} level. Engage in a natural conversation with the user. The conversation can be ${dialogueTopic}. Keep your responses concise and encourage the user to speak. Do not use any single or double quotes in your responses.`;
-
-    const initialPrompt = `Hello! Let's start our conversation. What would you like to talk about today?`;
+    const initialPrompt = `Hello! Let's start our conversation in ${currentTargetLanguageName}. What would you like to talk about today?`;
 
     setConversationHistory([{ role: 'model', text: initialPrompt }]);
     setIsRespondingToDialogue(false);
@@ -1277,24 +1242,15 @@ function App() {
       role: msg.role === 'user' ? 'user' : 'model',
       parts: [{ text: msg.text }]
     }));
-
-    const languageName = {
-      'ar': 'Arabic',
-      'en': 'English',
-      'fr': 'French',
-      'es': 'Spanish',
-      'de': 'German'
-    }[targetLanguage];
-
+    const currentTargetLanguageName = languageMap[targetLanguage] || targetLanguage;
     const dialogueTopic = topicInput ? `about the story topic: "${topicInput}"` : 'general language practice';
-
-    const systemPrompt = `You are a friendly and helpful language tutor. Your goal is to help the user practice their ${languageName} skills at an ${learningLevel} level. Engage in a natural conversation with the user. The conversation can be ${dialogueTopic}. Keep your responses concise and encourage the user to speak. Do not use any single or double quotes in your responses.`;
+    const systemPrompt = `You are a friendly and helpful language tutor. Your goal is to help the user practice their ${currentTargetLanguageName} skills at an ${learningLevel} level. Engage in a natural conversation with the user in ${currentTargetLanguageName}. The conversation can be ${dialogueTopic}. Keep your responses concise and encourage the user to speak. Do not use any single or double quotes in your responses.`;
 
     try {
       const payload = {
         contents: [{ role: "user", parts: [{ text: systemPrompt }] }, ...currentChatHistory],
         generationConfig: {
-          temperature: 0.7, // Adjust for creativity vs. focus
+          temperature: 0.7, 
         }
       };
       const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
@@ -1314,12 +1270,12 @@ function App() {
       } else {
         showError('فشل في الحصول على رد. قد تكون المشكلة في مفتاح الـ API أو في استجابة النموذج.');
         console.error('Gemini API dialogue error:', result);
-        setConversationHistory(prev => [...prev, { role: 'model', text: 'عذراً، حدث خطأ. هل يمكنك المحاولة مرة أخرى؟' }]);
+        setConversationHistory(prev => [...prev, { role: 'model', text: `عذراً، حدث خطأ. هل يمكنك المحاولة مرة أخرى؟ (In ${currentTargetLanguageName})` }]);
       }
     } catch (error) {
       console.error('Error sending dialogue message:', error);
       showError('حدث خطأ أثناء إرسال الرسالة. يرجى التحقق من اتصالك بالإنترنت ومفتاح الـ API.');
-      setConversationHistory(prev => [...prev, { role: 'model', text: 'عذراً، حدث خطأ في الاتصال. يرجى التحقق من اتصالك بالإنترنت.' }]);
+      setConversationHistory(prev => [...prev, { role: 'model', text: `عذراً، حدث خطأ في الاتصال. يرجى التحقق من اتصالك بالإنترنت. (In ${currentTargetLanguageName})` }]);
     } finally {
       setIsRespondingToDialogue(false);
     }
@@ -1330,11 +1286,10 @@ function App() {
     setIsGettingPronunciation(true);
     setPronunciationGuide(null);
     setShowErrorModal(false);
-    setShowPronunciationModal(true); // Ensure modal is visible
-    setShowRolePlayModal(false); // Close other modals if open
+    setShowPronunciationModal(true); 
+    setShowRolePlayModal(false); 
     setShowFlashcardModal(false);
 
-    // Set initial size and position for centering
     setPronunciationModalWidth(512);
     setPronunciationModalHeight('auto');
     setPronunciationModalX((window.innerWidth - 512) / 2);
@@ -1352,16 +1307,8 @@ function App() {
       return;
     }
 
-    const languageName = {
-      'ar': 'Arabic',
-      'en': 'English',
-      'fr': 'French',
-      'es': 'Spanish',
-      'de': 'German'
-    }[targetLanguage];
-
-    // Updated prompt to explicitly request tips in Arabic
-    const prompt = `Provide a phonetic pronunciation guide for the word/phrase '${wordForPronunciation}' in ${languageName}. Provide pronunciation tips in Arabic. Include common difficulties for Arabic speakers if applicable. Provide an example sentence using the word/phrase in ${languageName} and its Arabic translation. Format as a JSON object with keys: 'phonetic', 'tips' (in Arabic), 'exampleSentence' (in ${languageName}), 'exampleSentenceTranslation' (in Arabic).`;
+    const currentTargetLanguageName = languageMap[targetLanguage] || targetLanguage;
+    const prompt = `Provide a phonetic pronunciation guide for the word/phrase '${wordForPronunciation}' in ${currentTargetLanguageName}. Provide pronunciation tips in Arabic. Include common difficulties for Arabic speakers if applicable when learning ${currentTargetLanguageName}. Provide an example sentence using the word/phrase in ${currentTargetLanguageName} and its Arabic translation. Format as a JSON object with keys: 'phonetic' (in ${currentTargetLanguageName}), 'tips' (in Arabic), 'exampleSentence' (in ${currentTargetLanguageName}), 'exampleSentenceTranslation' (in Arabic).`;
 
     try {
       let chatHistory = [];
@@ -1374,7 +1321,7 @@ function App() {
             type: "OBJECT",
             properties: {
               phonetic: { type: "STRING" },
-              tips: { type: "STRING" }, // Expecting tips in Arabic now
+              tips: { type: "STRING" }, 
               exampleSentence: { type: "STRING" },
               exampleSentenceTranslation: { type: "STRING" }
             },
@@ -1412,62 +1359,92 @@ function App() {
   // Function to start role-playing scenario
   const startRolePlayScenario = async () => {
     if (!apiKey) {
-      showError('الرجاء إدخال مفتاح الـ API الخاص بك في الإعدادات لتمكين سيناريوهات لعب الأدوار.');
-      return;
+        showError('الرجاء إدخال مفتاح الـ API الخاص بك في الإعدادات لتمكين سيناريوهات لعب الأدوار.');
+        return;
     }
 
     if (!selectedScenario) {
-      showError('الرجاء اختيار سيناريو لبدء لعب الأدوار.');
-      return;
+        showError('الرجاء اختيار سيناريو لبدء لعب الأدوار.');
+        return;
     }
 
     setRolePlayHistory([]);
     setRolePlayUserInput('');
-    setIsRolePlayingResponding(true);
+    setIsRolePlayingResponding(true); // Set loading state
     setShowRolePlayModal(true);
-    setShowPronunciationModal(false); // Close other modals if open
+    setShowPronunciationModal(false);
     setShowFlashcardModal(false);
 
-    // Set initial size and position for centering
     setRolePlayModalWidth(512);
     setRolePlayModalHeight(window.innerHeight * 0.75);
     setRolePlayModalX((window.innerWidth - 512) / 2);
     setRolePlayModalY((window.innerHeight - (window.innerHeight * 0.75)) / 2);
 
-    const languageName = {
-      'ar': 'Arabic',
-      'en': 'English',
-      'fr': 'French',
-      'es': 'Spanish',
-      'de': 'German'
-    }[targetLanguage];
-
-    let initialPromptText = '';
-    let persona = '';
+    const currentTargetLanguageName = languageMap[targetLanguage] || targetLanguage;
+    let initialPromptKey = ''; // Key to fetch localized prompt
 
     switch (selectedScenario) {
-      case 'restaurant':
-        persona = 'A waiter in a restaurant';
-        initialPromptText = `Hello! Welcome to our restaurant. What can I get for you today?`;
-        break;
-      case 'directions':
-        persona = 'A helpful local giving directions';
-        initialPromptText = `Hello! How can I help you? Are you looking for something?`;
-        break;
-      case 'shopping':
-        persona = 'A shop assistant in a clothing store';
-        initialPromptText = `Hi there! Looking for anything in particular?`;
-        break;
-      default:
-        persona = 'A friendly person';
-        initialPromptText = `Hello! Let's practice some ${languageName}. How can I help you?`;
+        case 'restaurant':
+            initialPromptKey = 'restaurantHello';
+            break;
+        case 'directions':
+            initialPromptKey = 'directionsHello';
+            break;
+        case 'shopping':
+            initialPromptKey = 'shoppingHello';
+            break;
+        default:
+            initialPromptKey = 'generalHello';
     }
 
-    const systemPrompt = `You are ${persona}. Your goal is to engage in a natural conversation with the user in ${languageName} at an ${learningLevel} level, simulating a real-life scenario. Keep your responses concise and relevant to the scenario. Do not use any single or double quotes in your responses.`;
+    // System prompt for the AI's persona and language
+    const systemPersonaPrompt = `You are a helpful assistant for a role-playing scenario. The user wants to practice ${currentTargetLanguageName} at an ${learningLevel} level. The scenario is: '${selectedScenario}'. Your first message should be an engaging opening line for this scenario, entirely in ${currentTargetLanguageName}. Do not use any English or other languages in your response, only ${currentTargetLanguageName}. Do not use any single or double quotes in your responses.`;
 
-    setRolePlayHistory([{ role: 'model', text: initialPromptText }]);
-    setIsRolePlayingResponding(false);
-  };
+    try {
+        let chatHistory = [{ role: "user", parts: [{ text: systemPersonaPrompt }] }];
+        const payload = { contents: chatHistory };
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        const result = await response.json();
+
+        if (result.candidates && result.candidates.length > 0 &&
+            result.candidates[0].content && result.candidates[0].content.parts &&
+            result.candidates[0].content.parts.length > 0) {
+            const aiInitialMessage = result.candidates[0].content.parts[0].text.replace(/['"]/g, '').trim();
+            setRolePlayHistory([{ role: 'model', text: aiInitialMessage }]);
+        } else {
+            // Fallback or error message if AI fails to generate initial prompt
+            let fallbackInitialPrompt = `Hello! Let's start the '${selectedScenario}' scenario in ${currentTargetLanguageName}.`;
+            if (currentTargetLanguageName === "German") {
+                if (selectedScenario === "restaurant") fallbackInitialPrompt = "Hallo! Willkommen im Restaurant. Was kann ich für Sie tun?";
+                else if (selectedScenario === "directions") fallbackInitialPrompt = "Hallo! Kann ich Ihnen helfen, den Weg zu finden?";
+                else if (selectedScenario === "shopping") fallbackInitialPrompt = "Hallo! Suchen Sie etwas Bestimmtes?";
+                else fallbackInitialPrompt = `Hallo! Beginnen wir das Szenario '${selectedScenario}'.`;
+            }
+            setRolePlayHistory([{ role: 'model', text: fallbackInitialPrompt }]);
+            showError('لم يتمكن الذكاء الاصطناعي من إنشاء رسالة بدء مناسبة، سيتم استخدام رسالة افتراضية.');
+            console.error("Gemini API error for initial role-play prompt:", result);
+        }
+    } catch (error) {
+        console.error('Error starting role-play scenario with AI generated prompt:', error);
+        let fallbackInitialPrompt = `Error starting. Let's begin the '${selectedScenario}' scenario in ${currentTargetLanguageName}.`;
+         if (currentTargetLanguageName === "German") {
+            if (selectedScenario === "restaurant") fallbackInitialPrompt = "Hallo! Willkommen im Restaurant. Was kann ich für Sie tun?";
+            else if (selectedScenario === "directions") fallbackInitialPrompt = "Hallo! Kann ich Ihnen helfen, den Weg zu finden?";
+            else if (selectedScenario === "shopping") fallbackInitialPrompt = "Hallo! Suchen Sie etwas Bestimmtes?";
+            else fallbackInitialPrompt = `Hallo! Beginnen wir das Szenario '${selectedScenario}'.`;
+        }
+        setRolePlayHistory([{ role: 'model', text: fallbackInitialPrompt }]);
+        showError('حدث خطأ أثناء بدء سيناريو لعب الأدوار. سيتم استخدام رسالة افتراضية.');
+    } finally {
+        setIsRolePlayingResponding(false); // Clear loading state
+    }
+};
 
   // Function to send role-play message
   const sendRolePlayMessage = async () => {
@@ -1483,23 +1460,16 @@ function App() {
       parts: [{ text: msg.text }]
     }));
 
-    const languageName = {
-      'ar': 'Arabic',
-      'en': 'English',
-      'fr': 'French',
-      'es': 'Spanish',
-      'de': 'German'
-    }[targetLanguage];
-
+    const currentTargetLanguageName = languageMap[targetLanguage] || targetLanguage;
     let persona = '';
     switch (selectedScenario) {
-      case 'restaurant': persona = 'A waiter in a restaurant'; break;
-      case 'directions': persona = 'A helpful local giving directions'; break;
-      case 'shopping': persona = 'A shop assistant in a clothing store'; break;
-      default: persona = 'A friendly person';
+      case 'restaurant': persona = `A waiter in a restaurant (speaking ${currentTargetLanguageName})`; break;
+      case 'directions': persona = `A helpful local giving directions (speaking ${currentTargetLanguageName})`; break;
+      case 'shopping': persona = `A shop assistant in a clothing store (speaking ${currentTargetLanguageName})`; break;
+      default: persona = `A friendly person (speaking ${currentTargetLanguageName})`;
     }
 
-    const systemPrompt = `You are ${persona}. Your goal is to engage in a natural conversation with the user in ${languageName} at an ${learningLevel} level, simulating a real-life scenario. Keep your responses concise and relevant to the scenario. Do not use any single or double quotes in your responses.`;
+    const systemPrompt = `You are ${persona}. Your goal is to engage in a natural conversation with the user in ${currentTargetLanguageName} at an ${learningLevel} level, simulating the '${selectedScenario}' scenario. Keep your responses concise and relevant to the scenario. Do not use any single or double quotes in your responses. Always respond in ${currentTargetLanguageName}.`;
 
     try {
       const payload = {
@@ -1520,17 +1490,17 @@ function App() {
       if (result.candidates && result.candidates.length > 0 &&
           result.candidates[0].content && result.candidates[0].content.parts &&
           result.candidates[0].content.parts.length > 0) {
-        const aiResponseText = result.candidates[0].content.parts[0].text.replace(/['']/g, '').trim();
+        const aiResponseText = result.candidates[0].content.parts[0].text.replace(/['"]/g, '').trim();
         setRolePlayHistory(prev => [...prev, { role: 'model', text: aiResponseText }]);
       } else {
         showError('فشل في الحصول على رد. قد تكون المشكلة في مفتاح الـ API أو في استجابة النموذج.');
         console.error('Gemini API role play error:', result);
-        setRolePlayHistory(prev => [...prev, { role: 'model', text: 'عذراً، حدث خطأ. هل يمكنك المحاولة مرة أخرى؟' }]);
+        setRolePlayHistory(prev => [...prev, { role: 'model', text: `عذراً، حدث خطأ. هل يمكنك المحاولة مرة أخرى؟ (In ${currentTargetLanguageName})` }]);
       }
     } catch (error) {
       console.error('Error sending role play message:', error);
       showError('حدث خطأ أثناء إرسال الرسالة. يرجى التحقق من اتصالك بالإنترنت ومفتاح الـ API.');
-      setRolePlayHistory(prev => [...prev, { role: 'model', text: 'عذراً، حدث خطأ في الاتصال. يرجى التحقق من اتصالك بالإنترنت.' }]);
+      setRolePlayHistory(prev => [...prev, { role: 'model', text: `عذراً، حدث خطأ في الاتصال. يرجى التحقق من اتصالك بالإنترنت. (In ${currentTargetLanguageName})` }]);
     } finally {
       setIsRolePlayingResponding(false);
     }
@@ -1543,10 +1513,9 @@ function App() {
     setCurrentFlashcardIndex(0);
     setShowFlashcardAnswer(false);
     setShowErrorModal(false);
-    setShowPronunciationModal(false); // Close other modals if open
+    setShowPronunciationModal(false); 
     setShowRolePlayModal(false);
 
-    // Set initial size and position for centering
     setFlashcardModalWidth(600);
     setFlashcardModalHeight('auto');
     setFlashcardModalX((window.innerWidth - 600) / 2);
@@ -1565,8 +1534,8 @@ function App() {
       setIsGeneratingFlashcards(false);
       return;
     }
-
-    const prompt = `Generate flashcards for the following words/phrases in ${targetLanguage}: "${wordsToGenerate}". For each, provide its translation to Arabic, a concise definition in ${targetLanguage}, and an example sentence in ${targetLanguage}. Format as a JSON array of objects, each with keys: 'word', 'translation', 'definition', 'exampleSentence'.`;
+    const currentTargetLanguageName = languageMap[targetLanguage] || targetLanguage;
+    const prompt = `Generate flashcards for the following words/phrases: "${wordsToGenerate}". For each, provide the word/phrase in ${currentTargetLanguageName}, its translation to Arabic, a concise definition in ${currentTargetLanguageName}, and an example sentence in ${currentTargetLanguageName}. Format as a JSON array of objects, each with keys: 'word' (in ${currentTargetLanguageName}), 'translation' (in Arabic), 'definition' (in ${currentTargetLanguageName}), 'exampleSentence' (in ${currentTargetLanguageName}).`;
 
     try {
       let chatHistory = [];
@@ -1642,55 +1611,49 @@ function App() {
     }
 
     if (!speechVoice) {
-        showError('لا يوجد صوت متاح للغة المختارة. يرجى التحقق من إعدادات المتصفح أو تثبيت حزم اللغة.');
+        showError(`لا يوجد صوت متاح للغة ${languageMap[targetLanguage] || targetLanguage}. يرجى التحقق من إعدادات المتصفح أو تثبيت حزم اللغة.`);
         return;
     }
 
-    // Stop any ongoing speech and reset states
     speechSynthesisRef.current.cancel();
     setIsSpeaking(true);
     setHighlightedWordIndex(-1);
-    globalSpeechOffsetRef.current = 0; // Reset global offset for new story
+    globalSpeechOffsetRef.current = 0; 
 
-    // Split story into sentences. This regex tries to keep punctuation with the sentence.
     const sentences = storyText.match(/[^.!?]+[.!?]|\S+$/g) || [];
-    sentenceQueueRef.current = [...sentences]; // Initialize the queue
+    sentenceQueueRef.current = [...sentences]; 
 
     const speakNextSentence = () => {
       if (sentenceQueueRef.current.length > 0) {
-        const currentSentence = sentenceQueueRef.current[0].trim(); // Peek at the first sentence
+        const currentSentence = sentenceQueueRef.current[0].trim(); 
         
-        // Skip empty sentences that might result from splitting
         if (!currentSentence) {
-          sentenceQueueRef.current.shift(); // Remove empty sentence
+          sentenceQueueRef.current.shift(); 
           speakNextSentence();
           return;
         }
 
-        // Find the actual start index of this sentence in the original storyText
-        // This is crucial for correctly mapping onboundary charIndex to global index
         const actualSentenceStartIndex = storyText.indexOf(currentSentence, globalSpeechOffsetRef.current);
 
         if (actualSentenceStartIndex === -1) {
             console.warn("Could not find current sentence in storyText. Skipping.");
-            sentenceQueueRef.current.shift(); // Remove and try next
+            sentenceQueueRef.current.shift(); 
             speakNextSentence();
             return;
         }
 
-        globalSpeechOffsetRef.current = actualSentenceStartIndex; // Update global offset to the start of this sentence
+        globalSpeechOffsetRef.current = actualSentenceStartIndex; 
 
         const utterance = new SpeechSynthesisUtterance(currentSentence);
         utterance.rate = speechRate;
         utterance.pitch = speechPitch;
         utterance.lang = speechVoice.lang;
-        utteranceRef.current = utterance; // Store current utterance in ref
+        utteranceRef.current = utterance; 
 
         utterance.onend = () => {
           console.log(`Sentence finished: "${currentSentence}"`);
-          sentenceQueueRef.current.shift(); // Remove the finished sentence from queue
+          sentenceQueueRef.current.shift(); 
           
-          // Move global offset past this sentence and any immediate whitespace after it
           globalSpeechOffsetRef.current = actualSentenceStartIndex + currentSentence.length;
           const remainingText = storyText.substring(globalSpeechOffsetRef.current);
           const leadingWhitespaceMatch = remainingText.match(/^\s+/);
@@ -1698,32 +1661,20 @@ function App() {
               globalSpeechOffsetRef.current += leadingWhitespaceMatch[0].length;
           }
 
-          setHighlightedWordIndex(-1); // Reset highlight after sentence
-          speakNextSentence(); // Recursively call to speak the next sentence
+          setHighlightedWordIndex(-1); 
+          speakNextSentence(); 
         };
 
         utterance.onboundary = (event) => {
           if (event.name === 'word') {
-            // charIndex is relative to the current utterance (sentence)
             const globalCharIndex = globalSpeechOffsetRef.current + event.charIndex;
-            console.log("onboundary event (global charIndex):", globalCharIndex, "word segment from text:", storyText.substring(globalCharIndex, globalCharIndex + 15));
-
             let newHighlightedIndex = -1;
             for (let i = 0; i < storySegmentsRef.current.length; i++) {
               const segment = storySegmentsRef.current[i];
-              // Log each segment being checked for debugging
-              console.log(`  Checking segment ${i}: type=${segment.type}, content='${segment.content}', startIndex=${segment.startIndex}, endIndex=${segment.endIndex}`);
-              // Check if the globalCharIndex falls within the segment's range
               if (segment.type === 'word' && globalCharIndex >= segment.startIndex && globalCharIndex < segment.endIndex) {
                 newHighlightedIndex = i;
                 break;
               }
-            }
-
-            if (newHighlightedIndex !== -1) {
-              console.log("HIGHLIGHTED word segment (matched):", storySegmentsRef.current[newHighlightedIndex].content, "at global index:", storySegmentsRef.current[newHighlightedIndex].startIndex);
-            } else {
-              console.warn("Could not find word segment for global charIndex:", globalCharIndex);
             }
             setHighlightedWordIndex(newHighlightedIndex);
           }
@@ -1734,7 +1685,7 @@ function App() {
           setIsSpeaking(false);
           setHighlightedWordIndex(-1);
           showError('حدث خطأ أثناء تحويل النص إلى كلام. يرجى التحقق من إعدادات المتصفح وحزم اللغة المثبتة.');
-          sentenceQueueRef.current = []; // Clear queue on error to stop further attempts
+          sentenceQueueRef.current = []; 
         };
 
         speechSynthesisRef.current.speak(utterance);
@@ -1744,8 +1695,6 @@ function App() {
         console.log("All sentences finished speaking.");
       }
     };
-
-    // Start the process
     speakNextSentence();
   };
 
@@ -1755,16 +1704,16 @@ function App() {
       speechSynthesisRef.current.cancel();
       setIsSpeaking(false);
       setHighlightedWordIndex(-1);
-      sentenceQueueRef.current = []; // Clear the queue to ensure full stop
+      sentenceQueueRef.current = []; 
     }
   };
 
   // Get available voices for selection
   const getVoices = () => {
-    if (speechSynthesisRef.current) { // Add this check
+    if (speechSynthesisRef.current) { 
       return speechSynthesisRef.current.getVoices();
     }
-    return []; // Return an empty array if not available
+    return []; 
   };
 
   // Function to toggle dark mode
@@ -1775,16 +1724,10 @@ function App() {
   // Function to handle API type selection (placeholder for future expansion)
   const handleApiSelection = (api) => {
     setSelectedApi(api);
-    // In a real app, this would trigger different API key inputs/logic
   };
 
   // Basic adaptation engine placeholder - for future expansion
   const analyzeErrorsAndSuggestExercises = () => {
-    // This is a placeholder. In a real app, this would involve:
-    // 1. Analyzing user input (e.g., pronunciation attempts, written responses).
-    // 2. Comparing with correct answers/pronunciations.
-    // 3. Identifying common errors (e.g., specific grammar rules, vocabulary gaps, phoneme difficulties).
-    // 4. Generating targeted exercises (e.g., fill-in-the-blanks, pronunciation drills for specific words, sentence reordering).
     showError('محرّك التكيّف الذكي قيد التطوير. هذه الميزة ستوفر تمارين مخصصة بناءً على أدائك في المستقبل!');
   };
 
@@ -2028,7 +1971,7 @@ function App() {
                   }}
                   className={`p-2 border rounded-lg ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : 'bg-gray-50 border-gray-300 text-gray-900'}`}
                 >
-                  {getVoices().filter(voice => voice.lang.startsWith(targetLanguage)).map(voice => (
+                  {getVoices().filter(voice => voice.lang.toLowerCase().startsWith(targetLanguage.toLowerCase())).map(voice => (
                     <option key={voice.name} value={voice.name}>
                       {voice.name} ({voice.lang})
                     </option>
@@ -2223,32 +2166,32 @@ function App() {
             ) : wordExplanation ? (
               <div className="overflow-y-auto" style={{ maxHeight: wordModalHeight === 'auto' ? 'none' : `${wordModalHeight - 150}px` }}> {/* Adjust scrollable height */}
                 <p className="mb-2" dir="rtl">
-                  <span className="font-semibold">الشرح:</span>
+                  <span className="font-semibold">الشرح ({languageMap[targetLanguage] || targetLanguage}):</span>
                 </p>
-                <p dir="ltr" className="block text-left mb-2">
+                <p dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} className={`block mb-2 ${targetLanguage === 'ar' ? 'text-right' : 'text-left'}`}>
                     {wordExplanation.explanation}
                 </p>
                 <p className="mb-2" dir="rtl">
-                  <span className="font-semibold">المرادفات:</span>
+                  <span className="font-semibold">المرادفات ({languageMap[targetLanguage] || targetLanguage}):</span>
                 </p>
-                <p dir="ltr" className="block text-left mb-2">
+                <p dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} className={`block mb-2 ${targetLanguage === 'ar' ? 'text-right' : 'text-left'}`}>
                     {wordExplanation.synonyms}
                 </p>
                 <p className="mb-2" dir="rtl">
-                  <span className="font-semibold">المتضادات:</span>
+                  <span className="font-semibold">المتضادات ({languageMap[targetLanguage] || targetLanguage}):</span>
                 </p>
-                <p dir="ltr" className="block text-left mb-2">
+                <p dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} className={`block mb-2 ${targetLanguage === 'ar' ? 'text-right' : 'text-left'}`}>
                     {wordExplanation.antonyms}
                 </p>
                 <p className="mb-2" dir="rtl">
                   <span className="font-semibold">الترجمة العربية:</span>
                   <span dir="rtl" className="block text-right">{wordExplanation.arabicTranslation}</span>
                 </p>
-                <p className="font-semibold mt-4" dir="rtl">أمثلة:</p>
-                <ul className="list-disc list-inside ml-4" dir="ltr">
+                <p className="font-semibold mt-4" dir="rtl">أمثلة ({languageMap[targetLanguage] || targetLanguage}):</p>
+                <ul className="list-disc list-inside ml-4" dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'}>
                   {wordExplanation.examples.map((example, idx) => (
                     <li key={idx}>
-                      <span dir="ltr" className="block text-left">{example}</span>
+                      <span dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} className={`block ${targetLanguage === 'ar' ? 'text-right' : 'text-left'}`}>{example}</span>
                     </li>
                   ))}
                 </ul>
@@ -2318,7 +2261,7 @@ function App() {
                           `}
                           disabled={quizResults !== null}
                         >
-                          <span dir="ltr" className="flex items-center w-full text-left">
+                          <span dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} className={`flex items-center w-full ${targetLanguage === 'ar' ? 'text-right' : 'text-left'}`}>
                             <span className="mr-2">{String.fromCharCode(65 + oIndex)}.</span>
                             <span>{option}</span>
                           </span>
@@ -2329,7 +2272,7 @@ function App() {
                       ))}
                     </div>
                     {quizResults && userAnswers[qIndex] !== q.correct_answer && (
-                        <p className="text-red-500 text-sm mt-2" dir="rtl">الإجابة الصحيحة: <span dir="ltr">{q.correct_answer}</span></p>
+                        <p className="text-red-500 text-sm mt-2" dir="rtl">الإجابة الصحيحة: <span dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'}>{q.correct_answer}</span></p>
                     )}
                   </div>
                 ))}
@@ -2406,16 +2349,16 @@ function App() {
             ) : rephrasedSentenceData ? (
               <div className="overflow-y-auto" style={{ maxHeight: rephraseModalHeight === 'auto' ? 'none' : `${rephraseModalHeight - 150}px` }}>
                 <p className="mb-2" dir="rtl">
-                  <span className="font-semibold">الجملة الأصلية:</span>
-                  <span dir="ltr" className="block text-left">{rephrasedSentenceData.original}</span>
+                  <span className="font-semibold">الجملة الأصلية ({languageMap[targetLanguage] || targetLanguage}):</span>
+                  <span dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} className={`block ${targetLanguage === 'ar' ? 'text-right' : 'text-left'}`}>{rephrasedSentenceData.original}</span>
                 </p>
                 <p className="mb-2" dir="rtl">
-                  <span className="font-semibold">الجملة المعاد صياغتها:</span>
-                  <span dir="ltr" className="block text-left">{rephrasedSentenceData.rephrased}</span>
+                  <span className="font-semibold">الجملة المعاد صياغتها ({languageMap[targetLanguage] || targetLanguage}):</span>
+                  <span dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} className={`block ${targetLanguage === 'ar' ? 'text-right' : 'text-left'}`}>{rephrasedSentenceData.rephrased}</span>
                 </p>
                 <p className="mb-2" dir="rtl">
-                  <span className="font-semibold">الشرح:</span>
-                  <span dir="ltr" className="block text-left">{rephrasedSentenceData.explanation}</span>
+                  <span className="font-semibold">الشرح (بالعربية):</span>
+                  <span dir="rtl" className="block text-right">{rephrasedSentenceData.explanation}</span>
                 </p>
               </div>
             ) : (
@@ -2468,22 +2411,22 @@ function App() {
             ) : grammarAnalysis ? (
               <div className="overflow-y-auto" style={{ maxHeight: grammarModalHeight === 'auto' ? 'none' : `${grammarModalHeight - 150}px` }}>
                 <p className="mb-2" dir="rtl">
-                  <span className="font-semibold">الجملة الأصلية:</span>
-                  <span dir="ltr" className="block text-left">{grammarAnalysis.original}</span>
+                  <span className="font-semibold">الجملة الأصلية ({languageMap[targetLanguage] || targetLanguage}):</span>
+                  <span dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} className={`block ${targetLanguage === 'ar' ? 'text-right' : 'text-left'}`}>{grammarAnalysis.original}</span>
                 </p>
                 <p className="mb-2" dir="rtl">
-                  <span className="font-semibold">الجملة المصححة:</span>
-                  <span dir="ltr" className="block text-left">{grammarAnalysis.corrected}</span>
+                  <span className="font-semibold">الجملة المصححة ({languageMap[targetLanguage] || targetLanguage}):</span>
+                  <span dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} className={`block ${targetLanguage === 'ar' ? 'text-right' : 'text-left'}`}>{grammarAnalysis.corrected}</span>
                 </p>
                 <p className="font-semibold mt-4" dir="rtl">الأخطاء والشرح:</p>
                 {grammarAnalysis.errors && grammarAnalysis.errors.length > 0 ? (
                   <ul className="list-disc list-inside ml-4">
                     {grammarAnalysis.errors.map((err, idx) => (
-                      <li key={idx}>
-                        <span className="font-semibold text-red-400" dir="rtl">الخطأ:</span>
-                        <span dir="ltr" className="block text-left">{err.error}</span>
-                        <span className="font-semibold text-gray-400" dir="rtl">الشرح:</span>
-                        <span dir="ltr" className="block text-left">{err.explanation}</span>
+                      <li key={idx} className="mb-2">
+                        <span className="font-semibold text-red-400" dir="rtl">الخطأ ({languageMap[targetLanguage] || targetLanguage}):</span>
+                        <span dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} className={`block ${targetLanguage === 'ar' ? 'text-right' : 'text-left'}`}>{err.error}</span>
+                        <span className="font-semibold text-gray-400" dir="rtl">الشرح (بالعربية):</span>
+                        <span dir="rtl" className="block text-right">{err.explanation}</span>
                       </li>
                     ))}
                   </ul>
@@ -2541,14 +2484,14 @@ function App() {
             ) : sentenceCompletions.length > 0 ? (
               <div className="overflow-y-auto" style={{ maxHeight: completionModalHeight === 'auto' ? 'none' : `${completionModalHeight - 150}px` }}>
                 <p className="mb-2" dir="rtl">
-                  <span className="font-semibold">الجملة الجزئية:</span>
-                  <span dir="ltr" className="block text-left">{partialSentence}</span>
+                  <span className="font-semibold">الجملة الجزئية ({languageMap[targetLanguage] || targetLanguage}):</span>
+                  <span dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} className={`block ${targetLanguage === 'ar' ? 'text-right' : 'text-left'}`}>{partialSentence}</span>
                 </p>
-                <p className="font-semibold mt-4" dir="rtl">الاقتراحات:</p>
+                <p className="font-semibold mt-4" dir="rtl">الاقتراحات ({languageMap[targetLanguage] || targetLanguage}):</p>
                 <ul className="list-disc list-inside ml-4">
                   {sentenceCompletions.map((completion, idx) => (
                     <li key={idx}>
-                      <span dir="ltr" className="block text-left">{completion}</span>
+                      <span dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} className={`block ${targetLanguage === 'ar' ? 'text-right' : 'text-left'}`}>{completion}</span>
                     </li>
                   ))}
                 </ul>
@@ -2601,8 +2544,8 @@ function App() {
                 <p className="ml-4">جاري جلب الرؤى...</p>
               </div>
             ) : culturalInsight ? (
-              <div className="overflow-y-auto" style={{ maxHeight: culturalModalHeight === 'auto' ? 'none' : `${culturalModalHeight - 150}px` }} dir="rtl">
-                <p className="mb-2"><span dir="ltr" className="block text-left">{culturalInsight.insight}</span></p>
+              <div className="overflow-y-auto" style={{ maxHeight: culturalModalHeight === 'auto' ? 'none' : `${culturalModalHeight - 150}px` }} dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'}>
+                <p className={`mb-2 ${targetLanguage === 'ar' ? 'text-right' : 'text-left'}`}>{culturalInsight.insight}</p>
               </div>
             ) : (
               <p dir="rtl">لا توجد رؤى ثقافية متاحة.</p>
@@ -2757,7 +2700,7 @@ function App() {
                 <p className="text-center text-gray-500" dir="rtl">ابدأ المحادثة مع معلم اللغة الافتراضي!</p>
               ) : (
                 conversationHistory.map((msg, index) => (
-                  <div key={index} className={`mb-3 flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`} dir={msg.role === 'user' ? 'ltr' : (targetLanguage === 'ar' ? 'rtl' : 'ltr')}> {/* Dynamic direction for messages */}
+                  <div key={index} className={`mb-3 flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`} dir={msg.role === 'user' ? (targetLanguage === 'ar' ? 'rtl' : 'ltr') : (targetLanguage === 'ar' ? 'rtl' : 'ltr')}>
                     <div className={`p-3 rounded-lg max-w-[80%] ${msg.role === 'user' ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-800 dark:bg-gray-600 dark:text-gray-100'}`}>
                       {msg.text}
                     </div>
@@ -2765,7 +2708,7 @@ function App() {
                 ))
               )}
               {isRespondingToDialogue ? (
-                <div className="flex justify-start mb-3" dir="rtl">
+                <div className="flex justify-start mb-3" dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'}>
                   <div className={`p-3 rounded-lg bg-gray-200 text-gray-800 dark:bg-gray-600 dark:text-gray-100 animate-pulse`}>
                     ...جاري الرد
                   </div>
@@ -2781,7 +2724,7 @@ function App() {
                 placeholder="اكتب رسالتك هنا..."
                 className={`flex-grow p-3 border rounded-l-lg focus:ring-2 focus:ring-indigo-500 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'bg-gray-50 border-gray-300 text-gray-900'}`}
                 disabled={isRespondingToDialogue}
-                dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} // Dynamic direction
+                dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} 
               />
               <button
                 onClick={sendDialogueMessage}
@@ -2839,7 +2782,7 @@ function App() {
                 onChange={(e) => setWordForPronunciation(e.target.value)}
                 placeholder="أدخل كلمة أو عبارة للحصول على دليل النطق"
                 className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'bg-gray-50 border-gray-300 text-gray-900'}`}
-                dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} // Dynamic direction
+                dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} 
               />
             </div>
             <button
@@ -2858,19 +2801,19 @@ function App() {
             ) : pronunciationGuide ? (
               <div className="overflow-y-auto" style={{ maxHeight: pronunciationModalHeight === 'auto' ? 'none' : `${pronunciationModalHeight - 250}px` }}>
                 <p className="mb-2" dir="rtl">
-                  <span className="font-semibold">الصوتيات:</span>
-                  <span dir="ltr" className="block text-left">{pronunciationGuide.phonetic}</span>
+                  <span className="font-semibold">الصوتيات ({languageMap[targetLanguage] || targetLanguage}):</span>
+                  <span dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} className={`block ${targetLanguage === 'ar' ? 'text-right' : 'text-left'}`}>{pronunciationGuide.phonetic}</span>
                 </p>
                 <p className="mb-2" dir="rtl">
-                  <span className="font-semibold">نصائح:</span>
+                  <span className="font-semibold">نصائح (بالعربية):</span>
                   <span dir="rtl" className="block text-right">{pronunciationGuide.tips}</span>
                 </p>
                 <p className="mb-2" dir="rtl">
-                  <span className="font-semibold">جملة مثال:</span>
-                  <span dir="ltr" className="block text-left">{pronunciationGuide.exampleSentence}</span>
+                  <span className="font-semibold">جملة مثال ({languageMap[targetLanguage] || targetLanguage}):</span>
+                  <span dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} className={`block ${targetLanguage === 'ar' ? 'text-right' : 'text-left'}`}>{pronunciationGuide.exampleSentence}</span>
                 </p>
                 <p className="mb-2" dir="rtl">
-                  <span className="font-semibold">ترجمة المثال:</span>
+                  <span className="font-semibold">ترجمة المثال (بالعربية):</span>
                   <span dir="rtl" className="block text-right">{pronunciationGuide.exampleSentenceTranslation}</span>
                 </p>
               </div>
@@ -2923,7 +2866,7 @@ function App() {
                 value={selectedScenario}
                 onChange={(e) => setSelectedScenario(e.target.value)}
                 className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : 'bg-gray-50 border-gray-300 text-gray-900'}`}
-                dir="rtl" // Added RTL direction
+                dir="rtl" 
               >
                 <option value="">-- اختر --</option>
                 <option value="restaurant">في المطعم</option>
@@ -2940,19 +2883,25 @@ function App() {
             </button>
 
             <div ref={rolePlayChatRef} className={`flex-grow overflow-y-auto p-4 rounded-lg mb-4 border ${isDarkMode ? 'bg-gray-700 border-gray-600' : 'bg-gray-50 border-gray-200'}`}>
-              {rolePlayHistory.length === 0 ? (
+              {isRolePlayingResponding && rolePlayHistory.length === 0 ? (
+                 <div className="flex justify-start mb-3" dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'}>
+                    <div className={`p-3 rounded-lg bg-gray-200 text-gray-800 dark:bg-gray-600 dark:text-gray-100 animate-pulse`}>
+                        ...جاري بدء السيناريو باللغة المحددة
+                    </div>
+                </div>
+              ) : rolePlayHistory.length === 0 ? (
                 <p className="text-center text-gray-500" dir="rtl">اختر سيناريو وبدء لعب الأدوار!</p>
               ) : (
                 rolePlayHistory.map((msg, index) => (
-                  <div key={index} className={`mb-3 flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`} dir={msg.role === 'user' ? 'ltr' : (targetLanguage === 'ar' ? 'rtl' : 'ltr')}> {/* Dynamic direction for messages */}
+                  <div key={index} className={`mb-3 flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`} dir={msg.role === 'user' ? (targetLanguage === 'ar' ? 'rtl' : 'ltr') : (targetLanguage === 'ar' ? 'rtl' : 'ltr')}>
                     <div className={`p-3 rounded-lg max-w-[80%] ${msg.role === 'user' ? 'bg-indigo-500 text-white' : 'bg-gray-200 text-gray-800 dark:bg-gray-600 dark:text-gray-100'}`}>
                       {msg.text}
                     </div>
                   </div>
                 ))
               )}
-              {isRolePlayingResponding ? (
-                <div className="flex justify-start mb-3" dir="rtl">
+              {isRolePlayingResponding && rolePlayHistory.length > 0 ? (
+                <div className="flex justify-start mb-3" dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'}>
                   <div className={`p-3 rounded-lg bg-gray-200 text-gray-800 dark:bg-gray-600 dark:text-gray-100 animate-pulse`}>
                     ...جاري الرد
                   </div>
@@ -2968,7 +2917,7 @@ function App() {
                 placeholder="اكتب ردك هنا..."
                 className={`flex-grow p-3 border rounded-l-lg focus:ring-2 focus:ring-indigo-500 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'bg-gray-50 border-gray-300 text-gray-900'}`}
                 disabled={isRolePlayingResponding || !selectedScenario}
-                dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} // Dynamic direction
+                dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} 
               />
               <button
                 onClick={sendRolePlayMessage}
@@ -3026,7 +2975,7 @@ function App() {
                 onChange={(e) => setFlashcardInput(e.target.value)}
                 placeholder="مثال: hello, goodbye, thank you"
                 className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'bg-gray-50 border-gray-300 text-gray-900'}`}
-                dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} // Dynamic direction
+                dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'} 
               />
               <p className="text-sm text-gray-500 mt-1" dir="rtl">
                 أو سيتم استخدام المفردات الرئيسية من القصة المولدة.
@@ -3052,9 +3001,9 @@ function App() {
                   <p className="text-4xl font-bold text-indigo-600 mb-4" dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'}>{flashcards[currentFlashcardIndex].word}</p>
                   {showFlashcardAnswer ? (
                     <div className="mt-4 text-lg">
-                      <p className="mb-2" dir="rtl"><span className="font-semibold">الترجمة:</span> <span dir="rtl">{flashcards[currentFlashcardIndex].translation}</span></p>
-                      <p className="mb-2" dir="rtl"><span className="font-semibold">التعريف:</span> <span dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'}>{flashcards[currentFlashcardIndex].definition}</span></p>
-                      <p dir="rtl"><span className="font-semibold">مثال:</span> <span dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'}>{flashcards[currentFlashcardIndex].exampleSentence}</span></p>
+                      <p className="mb-2" dir="rtl"><span className="font-semibold">الترجمة (بالعربية):</span> <span dir="rtl">{flashcards[currentFlashcardIndex].translation}</span></p>
+                      <p className="mb-2" dir="rtl"><span className="font-semibold">التعريف ({languageMap[targetLanguage] || targetLanguage}):</span> <span dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'}>{flashcards[currentFlashcardIndex].definition}</span></p>
+                      <p dir="rtl"><span className="font-semibold">مثال ({languageMap[targetLanguage] || targetLanguage}):</span> <span dir={targetLanguage === 'ar' ? 'rtl' : 'ltr'}>{flashcards[currentFlashcardIndex].exampleSentence}</span></p>
                     </div>
                   ) : null}
                 </div>
@@ -3132,11 +3081,9 @@ function App() {
                 value={selectedApi}
                 onChange={(e) => handleApiSelection(e.target.value)}
                 className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100' : 'bg-gray-50 border-gray-300 text-gray-900'}`}
-                dir="rtl" // Added RTL direction
+                dir="rtl" 
               >
                 <option value="Gemini">جيميني (Gemini)</option>
-                {/* <option value="OpenAI">أوبن إيه آي (OpenAI)</option> */}
-                {/* <option value="Claude">كلود (Claude)</option> */}
               </select>
               <p className="text-sm text-gray-500 mt-1" dir="rtl">
                 (حالياً، يتم دعم Gemini فقط. يمكنك إدخال مفتاح API الخاص بك أدناه.)
@@ -3151,7 +3098,7 @@ function App() {
                 onChange={(e) => setApiKey(e.target.value)}
                 placeholder="أدخل مفتاح API الخاص بك هنا"
                 className={`w-full p-3 border rounded-lg focus:ring-2 focus:ring-indigo-500 ${isDarkMode ? 'bg-gray-700 border-gray-600 text-gray-100 placeholder-gray-400' : 'bg-gray-50 border-gray-300 text-gray-900'}`}
-                dir="ltr" // API key is always LTR
+                dir="ltr" 
               />
               <p className="text-sm text-gray-500 mt-1" dir="rtl">
                 سيتم حفظ مفتاح الـ API محلياً في متصفحك.
